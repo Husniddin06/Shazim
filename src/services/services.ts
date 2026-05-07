@@ -4,6 +4,20 @@ import * as fs from "fs";
 import { getStoredMusic, addStoredMusic } from "../storage/channelStorage";
 import * as path from "path";
 import * as os from "os";
+import { YMApi, Types } from "yamd2";
+
+const ymApi = new YMApi();
+let ymApiInitialized = false;
+
+async function initializeYMApi() {
+  if (!ymApiInitialized) {
+    // You might need to get an access token for Yandex Music API
+    // For now, we'll assume it can work without one for basic search
+    // If authentication is required, you'll need to implement a way to get and store the token
+    await ymApi.init(); 
+    ymApiInitialized = true;
+  }
+}
 
 export interface MusicResult {
   fileId?: string; // Optional Telegram file_id if stored in channel
@@ -14,9 +28,30 @@ export interface MusicResult {
   duration: number;
   previewUrl: string;
   coverUrl: string;
+  source?: "deezer" | "yandex"; // Add source to MusicResult
 }
 
 export async function searchMusic(query: string): Promise<MusicResult[]> {
+  await initializeYMApi();
+  try {
+    const ymSearchResults = await ymApi.search(query, { type: "track" });
+    if (ymSearchResults.tracks && ymSearchResults.tracks.results.length > 0) {
+      return ymSearchResults.tracks.results.map((track: Types.Track) => ({
+        id: track.id,
+        title: track.title,
+        artist: track.artists ? track.artists[0].name : "Unknown",
+        album: track.albums ? track.albums[0].title : "Unknown",
+        duration: track.durationMs ? track.durationMs / 1000 : 0,
+        previewUrl: track.previewSrc || "",
+        coverUrl: track.cover ? `https://${track.cover.replace("%%", "400x400")}` : "",
+        source: "yandex"
+      }));
+    }
+  } catch (error) {
+    console.error("Yandex Music search error:", error);
+  }
+
+  // Fallback to Deezer if Yandex Music search fails or returns no results
   try {
     const { data } = await axios.get("https://api.deezer.com/search", {
       params: { q: query, limit: 6 },
@@ -30,6 +65,7 @@ export async function searchMusic(query: string): Promise<MusicResult[]> {
         duration: track.duration,
         previewUrl: track.preview,
         coverUrl: track.album.cover_medium,
+        source: "deezer"
       })) || []
     );
   } catch (error) {
@@ -69,6 +105,44 @@ export async function getRecommendations(trackId: number): Promise<MusicResult[]
 export async function downloadAudioBuffer(url: string): Promise<Buffer> {
   const { data } = await axios.get(url, { responseType: "arraybuffer" });
   return Buffer.from(data);
+}
+
+export async function downloadFullTrack(trackId: number, source: "deezer" | "yandex", title: string, artist: string): Promise<string | null> {
+  const tmpDir = path.join(os.tmpdir(), "bot-downloads");
+  if (!fs.existsSync(tmpDir)) {
+    fs.mkdirSync(tmpDir, { recursive: true });
+  }
+
+  let filePath: string | null = null;
+
+  try {
+    if (source === "yandex") {
+      await initializeYMApi();
+      const downloadInfo = await ymApi.getTrackDownloadInfo(trackId);
+      if (downloadInfo && downloadInfo.src) {
+        const { data } = await axios.get(downloadInfo.src, { responseType: "arraybuffer" });
+        filePath = path.join(tmpDir, `yandex_music_${trackId}.mp3`);
+        fs.writeFileSync(filePath, Buffer.from(data));
+      }
+    } else if (source === "deezer") {
+      // For Deezer, we'll use yt-dlp to search and download the full track from YouTube
+      console.log(`Searching YouTube for full track: ${artist} - ${title}`);
+      const searchYoutubeCmd = `yt-dlp --get-url "ytsearch1:${artist} - ${title}"`;
+      const youtubeUrl = await runCommand(searchYoutubeCmd, 15000);
+      if (youtubeUrl) {
+        const outputTemplate = path.join(tmpDir, `yt_dlp_${trackId}.%(ext)s`);
+        const downloadCmd = `yt-dlp --no-warnings -f "ba/b" -x --audio-format mp3 --audio-quality 320K -o "${outputTemplate}" "${youtubeUrl}"`;
+        await runCommand(downloadCmd, 60000);
+        const files = fs.readdirSync(tmpDir).filter(f => f.startsWith(`yt_dlp_${trackId}`));
+        if (files.length > 0) {
+          filePath = path.join(tmpDir, files[0]);
+        }
+      }
+    }
+  } catch (error) {
+    console.error(`Error downloading full track from ${source}:`, error);
+  }
+  return filePath;
 }
 
 function runCommand(cmd: string, timeout = 120000): Promise<string> {
@@ -233,6 +307,7 @@ export async function recognizeAudioShazam(
         duration: 0,
         previewUrl: "",
         coverUrl: track.images?.coverart || "",
+        source: "deezer" // Default source for Shazam recognition
       };
     }
     return null;

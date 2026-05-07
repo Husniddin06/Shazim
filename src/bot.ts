@@ -90,7 +90,7 @@ bot.on("inline_query", async (ctx) => {
         parse_mode: "Markdown" as const,
       },
       reply_markup: {
-        inline_keyboard: [[{ text: "⏬ Download", url: `https://t.me/${ctx.botInfo.username}?start=song_${r.id}` }]]
+        inline_keyboard: [[{ text: "⏬ Download", url: `https://t.me/${ctx.botInfo.username}?start=song_${r.id}_${r.source}` }]]
       },
       thumb_url: r.coverUrl,
     }));
@@ -140,8 +140,10 @@ bot.on("callback_query", async (ctx) => {
 
   // Song selection and features
   if (data.startsWith("song_")) {
-    const songId = parseInt(data.replace("song_", ""));
-    await handleSongCallback(ctx, songId);
+    const parts = data.split("_");
+    const songId = parseInt(parts[1]);
+    const source = parts[2] as "deezer" | "yandex";
+    await handleSongCallback(ctx, songId, source);
     return;
   }
   if (data.startsWith("lyrics_")) {
@@ -194,8 +196,10 @@ bot.on("message", async (ctx) => {
     if (msg.text.startsWith("/")) {
       // Handle deep linking for songs from inline mode
       if (msg.text.startsWith("/start song_")) {
-        const songId = parseInt(msg.text.replace("/start song_", ""));
-        await handleSongCallback(ctx, songId);
+        const parts = msg.text.replace("/start ", "").split("_");
+        const songId = parseInt(parts[1]);
+        const source = parts[2] as "deezer" | "yandex";
+        await handleSongCallback(ctx, songId, source);
         return;
       }
       return;

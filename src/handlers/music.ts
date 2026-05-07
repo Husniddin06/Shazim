@@ -1,6 +1,6 @@
 import { Context } from "telegraf";
 import { t, Language } from "../locales/i18n";
-import { searchMusic, downloadAudioBuffer, getLyrics, getRecommendations } from "../services/services";
+import { searchMusic, downloadAudioBuffer, getLyrics, getRecommendations, downloadFullTrack, cleanupFile } from "../services/services";
 import { getUser, saveUser, getBotSettings } from "../database/storage";
 import { bot, waitingState } from "../bot";
 import { STORAGE_CHANNEL_ID } from "../storage/channelStorage";
@@ -62,7 +62,10 @@ export async function handleTextSearch(ctx: Context, query: string) {
       await ctx.telegram.editMessageText(ctx.chat!.id, searchMsg.message_id, undefined, t(lang, "not_found"));
       return;
     }
-    const buttons = results.map((r) => [{ text: `🎵 ${r.artist} - ${r.title}`, callback_data: `song_${r.id}` }]);
+    const buttons = results.map((r) => [{
+      text: `🎵 ${r.artist} - ${r.title}`,
+      callback_data: `song_${r.id}_${r.source}`
+    }]);
     await ctx.telegram.editMessageText(ctx.chat!.id, searchMsg.message_id, undefined,
       t(lang, "choose_song"), { reply_markup: { inline_keyboard: buttons } });
   } catch {
@@ -71,9 +74,9 @@ export async function handleTextSearch(ctx: Context, query: string) {
   }
 }
 
-export async function handleSongCallback(ctx: Context, songId: number) {
+export async function handleSongCallback(ctx: Context, songId: number, source: "deezer" | "yandex" = "deezer") {
   const lang = getLang(ctx);
-  const stored = getStoredMusic(songId);
+  const stored = getStoredMusic(songId); // This might need to be updated to include source in the key
   
   const keyboard = [
     [{ text: t(lang, "lyrics"), callback_data: `lyrics_${songId}` }],
@@ -83,8 +86,8 @@ export async function handleSongCallback(ctx: Context, songId: number) {
     [{ text: t(lang, "share"), switch_inline_query: `${stored?.artist || ""} ${stored?.title || ""}`.trim() }]
   ];
 
-  if (stored) {
-    await ctx.replyWithAudio(stored.fileId, { 
+  if (stored && stored.source === source) {
+    await ctx.replyWithAudio(stored.fileId!, { 
       caption: `🎵 ${stored.title}\n👤 ${stored.artist}`,
       reply_markup: { inline_keyboard: keyboard },
       title: stored.title,
@@ -97,41 +100,56 @@ export async function handleSongCallback(ctx: Context, songId: number) {
   
   await ctx.editMessageText(t(lang, "downloading"));
   try {
-    const { data: trackData } = await (await import("axios")).default.get(
-      `https://api.deezer.com/track/${songId}`,
-    );
-    if (trackData?.preview) {
-      const audioBuffer = await downloadAudioBuffer(trackData.preview);
-      const caption = `🎵 ${trackData.title}\n👤 ${trackData.artist.name}\n💿 ${trackData.album.title}`;
-      const sentMessage = await ctx.replyWithAudio(
-        { source: audioBuffer, filename: `${trackData.artist.name} - ${trackData.title}.mp3` },
-        { 
-          caption, 
-          title: trackData.title, 
-          performer: trackData.artist.name, 
-          duration: trackData.duration,
-          reply_markup: { 
-            inline_keyboard: [
-              ...keyboard.slice(0, -1),
-              [{ text: t(lang, "share"), switch_inline_query: `${trackData.artist.name} ${trackData.title}` }]
-            ] 
-          }
-        },
+    let trackData: any;
+    if (source === "yandex") {
+      const { YMApi } = await import("yamd2");
+      const ymApi = new YMApi();
+      await ymApi.init();
+      trackData = await ymApi.getTrack(songId);
+    } else {
+      const { data } = await (await import("axios")).default.get(
+        `https://api.deezer.com/track/${songId}`,
       );
-      if (STORAGE_CHANNEL_ID && 'audio' in sentMessage && sentMessage.audio?.file_id) {
-        try {
-          const forwardedMessage = await bot.telegram.forwardMessage(STORAGE_CHANNEL_ID, ctx.chat!.id, sentMessage.message_id);
-          if ('audio' in forwardedMessage && forwardedMessage.audio?.file_id) {
-            addStoredMusic(songId, forwardedMessage.audio.file_id, trackData.title, trackData.artist.name);
-          }
-        } catch (e) { console.error("Channel save error:", e); }
+      trackData = data;
+    }
+
+    if (trackData) {
+      const fullTrackPath = await downloadFullTrack(songId, source, trackData.title, trackData.artist?.name || trackData.artists[0]?.name);
+      if (fullTrackPath) {
+        const caption = `🎵 ${trackData.title}\n👤 ${trackData.artist?.name || trackData.artists[0]?.name}\n💿 ${trackData.album?.title || trackData.albums[0]?.title}`;
+        const sentMessage = await ctx.replyWithAudio(
+          { source: fullTrackPath, filename: `${trackData.artist?.name || trackData.artists[0]?.name} - ${trackData.title}.mp3` },
+          { 
+            caption, 
+            title: trackData.title, 
+            performer: trackData.artist?.name || trackData.artists[0]?.name, 
+            duration: trackData.duration || (trackData.durationMs / 1000),
+            reply_markup: { 
+              inline_keyboard: [
+                ...keyboard.slice(0, -1),
+                [{ text: t(lang, "share"), switch_inline_query: `${trackData.artist?.name || trackData.artists[0]?.name} ${trackData.title}` }]
+              ] 
+            }
+          },
+        );
+        cleanupFile(fullTrackPath);
+        if (STORAGE_CHANNEL_ID && 'audio' in sentMessage && sentMessage.audio?.file_id) {
+          try {
+            const forwardedMessage = await bot.telegram.forwardMessage(STORAGE_CHANNEL_ID, ctx.chat!.id, sentMessage.message_id);
+            if ('audio' in forwardedMessage && forwardedMessage.audio?.file_id) {
+              addStoredMusic(songId, forwardedMessage.audio.file_id, trackData.title, trackData.artist?.name || trackData.artists[0]?.name, source);
+            }
+          } catch (e) { console.error("Channel save error:", e); }
+        }
+      } else {
+        await ctx.editMessageText(t(lang, "download_failed"));
       }
     } else {
-      await ctx.reply(t(lang, "not_found"));
+      await ctx.editMessageText(t(lang, "not_found"));
     }
   } catch (error) {
     console.error("Track error:", error);
-    await ctx.reply(t(lang, "error"));
+    await ctx.editMessageText(t(lang, "error"));
   }
 }
 
@@ -223,7 +241,7 @@ export async function handleRandomCommand(ctx: Context) {
     if (results.length > 0) {
       const randomSong = results[Math.floor(Math.random() * results.length)];
       await ctx.telegram.deleteMessage(ctx.chat!.id, searchMsg.message_id);
-      await handleSongCallback(ctx, randomSong.id);
+      await handleSongCallback(ctx, randomSong.id, randomSong.source);
     } else {
       await ctx.telegram.editMessageText(ctx.chat!.id, searchMsg.message_id, undefined, t(lang, "not_found"));
     }

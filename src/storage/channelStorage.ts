@@ -4,13 +4,12 @@ import * as fs from "fs";
 import * as path from "path";
 
 const DATA_DIR = path.join(process.cwd(), "bot", "data");
-const CHANNEL_STORAGE_FILE = path.join(DATA_DIR, "channel_storage.json");
-
-interface ChannelStoredMusic {
-  songId: number; // Deezer ID
+const CHANNEL_STORAGE_FILE = path.join(DATA_DIR, "channel_storage.jsexport interface ChannelStoredMusic {
+  songId: number; // Original ID from source
   fileId: string; // Telegram file_id of the forwarded message
   title: string;
   artist: string;
+  source: "deezer" | "yandex";
 }
 
 let storedMusic: Map<number, ChannelStoredMusic> = new Map();
@@ -42,8 +41,9 @@ export function getStoredMusic(songId: number): ChannelStoredMusic | undefined {
   return storedMusic.get(songId);
 }
 
-export function addStoredMusic(songId: number, fileId: string, title: string, artist: string) {
-  storedMusic.set(songId, { songId, fileId, title, artist });
+export function addStoredMusic(songId: number, fileId: string, title: string, artist: string, source: "deezer" | "yandex") {
+  storedMusic.set(songId, { songId, fileId, title, artist, source });
+
   saveStoredMusicToFile();
 }
 

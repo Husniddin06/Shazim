@@ -51,7 +51,7 @@ export async function handleAudioRecognition(ctx: Context) {
           try {
             const forwardedMessage = await bot.telegram.forwardMessage(STORAGE_CHANNEL_ID, ctx.chat!.id, sentMessage.message_id);
             if ('audio' in forwardedMessage && forwardedMessage.audio?.file_id) {
-              addStoredMusic(result.id, forwardedMessage.audio.file_id, result.title, result.artist);
+              addStoredMusic(result.id, forwardedMessage.audio.file_id, result.title, result.artist, result.source || "deezer");
             }
           } catch (e) { console.error("Channel save error:", e); }
         }
