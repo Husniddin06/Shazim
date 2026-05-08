@@ -1,7 +1,7 @@
 openapi: 3.0.0
 info:
   title: Shazim API
-  version: 1.0.0
+  version: 1.1.0
 paths:
   /music/find:
     post:
@@ -12,6 +12,18 @@ paths:
   /music/recent:
     get:
       summary: Qidiruv tarixi
+      responses:
+        '200':
+          description: OK
+  /music/download:
+    post:
+      summary: Musiqani yuklab olish linkini olish
+      responses:
+        '200':
+          description: OK
+  /music/favorite:
+    post:
+      summary: Sevimlilarga qo'shish
       responses:
         '200':
           description: OK
