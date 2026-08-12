@@ -253,66 +253,55 @@ export function cleanupFile(filePath: string) {
 
 export async function recognizeAudioShazam(
   audioBuffer: Buffer,
-  ctx: any
+  ctx: any,
 ): Promise<MusicResult | null> {
+  let tmpPath = "";
+  let wavPath = "";
   try {
-    const tmpPath = path.join(os.tmpdir(), `shazam_${Date.now()}.ogg`);
+    const stamp = Date.now();
+    tmpPath = path.join(os.tmpdir(), `shazam_${stamp}.input`);
+    wavPath = path.join(os.tmpdir(), `shazam_${stamp}.wav`);
     fs.writeFileSync(tmpPath, audioBuffer);
-
-    const wavPath = path.join(os.tmpdir(), `shazam_${Date.now()}.wav`);
-    try {
-      await runCommand(
-        `ffmpeg -i "${tmpPath}" -ar 16000 -ac 1 -f wav "${wavPath}" -y 2>/dev/null`,
-        10000,
-      );
-    } catch {
-      cleanupFile(tmpPath);
-      return null;
-    }
-
+    await runCommand(`ffmpeg -i "${tmpPath}" -ar 16000 -ac 1 -f wav "${wavPath}" -y 2>/dev/null`, 10000);
     const rawAudio = fs.readFileSync(wavPath);
-    cleanupFile(tmpPath);
-    cleanupFile(wavPath);
-
-    const base64Audio = rawAudio.toString("base64");
-
-    const { data } = await axios.post(
-      "https://shazam.p.rapidapi.com/songs/v2/detect",
-      base64Audio,
-      {
-        headers: {
-          "Content-Type": "text/plain",
-          "X-RapidAPI-Key": process.env.RAPIDAPI_KEY || "",
-          "X-RapidAPI-Host": "shazam.p.rapidapi.com",
-        },
+    const form = new (globalThis as any).FormData();
+    const blob = new (globalThis as any).Blob([rawAudio], { type: "audio/wav" });
+    form.append("upload_file", blob, "audio.wav");
+    const apiUrl = process.env.SHAZAM_API_URL || "https://shazam-api-free.p.rapidapi.com/shazam/recognize/";
+    const apiHost = process.env.SHAZAM_API_HOST || "shazam-api-free.p.rapidapi.com";
+    const { data } = await axios.post(apiUrl, form, {
+      headers: {
+        "x-rapidapi-host": apiHost,
+        "x-rapidapi-key": process.env.RAPIDAPI_KEY || "",
       },
-    );
-
-    if (data?.track) {
-      const track = data.track;
-      const searchResults = await searchMusic(`${track.subtitle} ${track.title}`);
-      if (searchResults.length > 0) {
-        const recognizedTrack = searchResults[0];
-        const stored = getStoredMusic(recognizedTrack.id);
-        if (stored) {
-          return { ...recognizedTrack, fileId: stored.fileId };
-        }
-        return recognizedTrack;
-      }
-      return {
-        id: 0,
-        title: track.title || "Unknown",
-        artist: track.subtitle || "Unknown",
-        album: "",
-        duration: 0,
-        previewUrl: "",
-        coverUrl: track.images?.coverart || "",
-        source: "deezer" // Default source for Shazam recognition
-      };
+      maxBodyLength: Infinity,
+      timeout: 30000,
+    });
+    const track = data?.track || data?.data?.track || data?.result?.track || data?.result || data?.data;
+    const title = track?.title || track?.name || track?.track?.title;
+    const artist = track?.subtitle || track?.artist || track?.track?.subtitle || track?.artists?.[0]?.name;
+    if (!title || !artist) return null;
+    const searchResults = await searchMusic(`${artist} ${title}`);
+    if (searchResults.length > 0) {
+      const recognizedTrack = searchResults[0];
+      const stored = getStoredMusic(recognizedTrack.id);
+      return stored ? { ...recognizedTrack, fileId: stored.fileId } : recognizedTrack;
     }
-    return null;
+    return {
+      id: 0,
+      title,
+      artist,
+      album: track?.album || "",
+      duration: Number(track?.duration || 0),
+      previewUrl: track?.previewUrl || track?.preview || "",
+      coverUrl: track?.images?.coverart || track?.cover || "",
+      source: "deezer",
+    };
   } catch (error) {
     console.error("Shazam recognition error:", error);
     return null;
+  } finally {
+    if (tmpPath) cleanupFile(tmpPath);
+    if (wavPath) cleanupFile(wavPath);
   }
 }
