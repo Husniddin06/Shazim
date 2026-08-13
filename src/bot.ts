@@ -199,7 +199,8 @@ bot.on("message", async (ctx) => {
         const parts = msg.text.replace("/start ", "").split("_");
         const songId = parseInt(parts[1]);
         const source = parts[2] as "deezer" | "yandex";
-        await handleSongCallback(ctx, songId, source);
+        const statusMessage = await ctx.reply(t(getLang(ctx), "downloading"));
+        await handleSongCallback(ctx, songId, source, statusMessage);
         return;
       }
       return;
@@ -219,7 +220,7 @@ bot.on("message", async (ctx) => {
 });
 
 
-// Keep update-level errors from crashing the polling process.
+// Prevent one failed Telegram update from stopping the polling process.
 bot.catch(async (error, ctx) => {
   console.error("Unhandled Telegram update error:", error);
   try {
