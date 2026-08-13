@@ -12,6 +12,15 @@ function getLang(ctx: Context): Language {
   return (user?.language as Language) || "en";
 }
 
+
+async function updateStatus(ctx: Context, text: string, statusMessage?: any) {
+  if (statusMessage) {
+    return ctx.telegram.editMessageText(ctx.chat!.id, statusMessage.message_id, undefined, text);
+  }
+  if ((ctx as any).callbackQuery) return ctx.editMessageText(text);
+  return ctx.reply(text);
+}
+
 async function checkDailyLimit(ctx: Context): Promise<boolean> {
   if (!ctx.from) return false;
   const user = getUser(ctx.from.id);
@@ -98,7 +107,8 @@ export async function handleSongCallback(ctx: Context, songId: number, source: "
 
   if (!(await requireSubscription(ctx))) return;
   
-  await ctx.editMessageText(t(lang, "downloading"));
+  const statusMessage = (ctx as any).callbackQuery ? undefined : await ctx.reply(t(lang, "downloading"));
+  if ((ctx as any).callbackQuery) await updateStatus(ctx, t(lang, "downloading"));
   try {
     let trackData: any;
     if (source === "yandex") {
@@ -142,14 +152,14 @@ export async function handleSongCallback(ctx: Context, songId: number, source: "
           } catch (e) { console.error("Channel save error:", e); }
         }
       } else {
-        await ctx.editMessageText(t(lang, "download_failed"));
+        await updateStatus(ctx, t(lang, "download_failed"), statusMessage);
       }
     } else {
-      await ctx.editMessageText(t(lang, "not_found"));
+      await updateStatus(ctx, t(lang, "not_found"), statusMessage);
     }
   } catch (error) {
     console.error("Track error:", error);
-    await ctx.editMessageText(t(lang, "error"));
+    await updateStatus(ctx, t(lang, "error"), statusMessage);
   }
 }
 
