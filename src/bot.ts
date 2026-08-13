@@ -218,5 +218,20 @@ bot.on("message", async (ctx) => {
   }
 });
 
+
+// Keep update-level errors from crashing the polling process.
+bot.catch(async (error, ctx) => {
+  console.error("Unhandled Telegram update error:", error);
+  try {
+    if ((ctx as any).callbackQuery) {
+      await (ctx as any).answerCbQuery("Something went wrong. Please try again.", { show_alert: true });
+    } else if (ctx.chat) {
+      await ctx.reply("Something went wrong while processing your request.");
+    }
+  } catch (notifyError) {
+    console.error("Failed to notify user about update error:", notifyError);
+  }
+});
+
 bot.launch();
 console.log("Bot started with enhanced features");
