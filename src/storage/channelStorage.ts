@@ -4,7 +4,9 @@ import * as fs from "fs";
 import * as path from "path";
 
 const DATA_DIR = path.join(process.cwd(), "bot", "data");
-const CHANNEL_STORAGE_FILE = path.join(DATA_DIR, "channel_storage.jsexport interface ChannelStoredMusic {
+const CHANNEL_STORAGE_FILE = path.join(DATA_DIR, "channel_storage.json");
+
+export interface ChannelStoredMusic {
   songId: number; // Original ID from source
   fileId: string; // Telegram file_id of the forwarded message
   title: string;
