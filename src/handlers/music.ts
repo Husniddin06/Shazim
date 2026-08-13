@@ -83,7 +83,7 @@ export async function handleTextSearch(ctx: Context, query: string) {
   }
 }
 
-export async function handleSongCallback(ctx: Context, songId: number, source: "deezer" | "yandex" = "deezer") {
+export async function handleSongCallback(ctx: Context, songId: number, source: "deezer" | "yandex" = "deezer", statusMessageArg?: any) {
   const lang = getLang(ctx);
   const stored = getStoredMusic(songId); // This might need to be updated to include source in the key
   
@@ -107,7 +107,7 @@ export async function handleSongCallback(ctx: Context, songId: number, source: "
 
   if (!(await requireSubscription(ctx))) return;
   
-  const statusMessage = (ctx as any).callbackQuery ? undefined : await ctx.reply(t(lang, "downloading"));
+  const statusMessage = statusMessageArg || ((ctx as any).callbackQuery ? undefined : await ctx.reply(t(lang, "downloading")));
   if ((ctx as any).callbackQuery) await updateStatus(ctx, t(lang, "downloading"));
   try {
     let trackData: any;
