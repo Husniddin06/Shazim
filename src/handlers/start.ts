@@ -14,6 +14,8 @@ export async function startHandler(ctx: Context) {
   
   const text = (ctx.message as any)?.text || "";
   
+
+  
   if (text.startsWith("/start song_")) {
     
     const payload = text.replace(/^\/start\s+/, "");
@@ -24,6 +26,8 @@ export async function startHandler(ctx: Context) {
     
     const source = parts[2] === "yandex" ? "yandex" : "deezer";
     
+
+    
     if (!Number.isFinite(songId)) {
       
       await ctx.reply(t(getLang(ctx), "not_found"));
@@ -32,17 +36,28 @@ export async function startHandler(ctx: Context) {
       
     }
     
-    await handleSongCallback(ctx, songId, source);
+
+    
+    const statusMessage = await ctx.reply(t(getLang(ctx), "downloading"));
+    
+    await handleSongCallback(ctx, songId, source, statusMessage);
     
     return;
     
   }
+  
+
   
   if (!(await requireSubscription(ctx))) return;
   
   await ctx.reply(t(getLang(ctx), "welcome"));
   
 }
+
+
+
+
+
 
 
 
